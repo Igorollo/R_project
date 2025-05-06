@@ -1,0 +1,8 @@
+<script>start("/Users/igor/Downloads/R/.venv/");</script>
+<script>onHasParentDirectory();</script>
+<script>addRow("bin","bin",1,640,"640 B",1746431401,"5/5/25, 9:50:01 AM");</script>
+<script>addRow("include","include",1,96,"96 B",1746430864,"5/5/25, 9:41:04 AM");</script>
+<script>addRow("lib","lib",1,96,"96 B",1746430864,"5/5/25, 9:41:04 AM");</script>
+<script>addRow("share","share",1,96,"96 B",1746431400,"5/5/25, 9:50:00 AM");</script>
+<script>addRow(".gitignore",".gitignore",0,69,"69 B",1746431362,"5/5/25, 9:49:22 AM");</script>
+<script>addRow("pyvenv.cfg","pyvenv.cfg",0,298,"298 B",1746431362,"5/5/25, 9:49:22 AM");</script>
