@@ -13,7 +13,7 @@ library(signal)     # Potentially for filtering, though spec.pgram handles basic
 #' Calculate RMSSD (Root Mean Square of Successive Differences)
 #' Vectorized function for RMSSD calculation on a vector of NN intervals.
 #' @param nn_intervals Numeric vector of NN intervals (ms).
-#' @return RMSSD value (ms), or NA if calculation is not possible.
+#' @return RMSSD value (ms), or NA if calculation is not possible
 #' @keywords internal
 calculate_rmssd <- function(nn_intervals) {
   # Ensure input is numeric and has length
