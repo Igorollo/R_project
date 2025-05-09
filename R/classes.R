@@ -13,7 +13,7 @@ library(dplyr)
 #'
 #' An S4 class to store and manage processed heart rate (HR) time series data,
 #' including raw RR intervals, cleaned data, interpolated HR, extracted HRV features,
-#' and associated metadata.
+#' and associated metadata
 #'
 #' @slot metadata A list containing metadata about the data source and processing,
 #'       including e.g., `file_source`, `subject_id` (optional), `processing_timestamp`,
