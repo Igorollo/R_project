@@ -1,5 +1,13 @@
 # StressAware: HR Data Analysis for Stress Assessment
 
+## 0. Introduction
+
+In today's fast-paced world, stress has become an almost universal experience, affecting individuals across all walks of life. Chronic stress is detrimental to well-being, contributing to a range of physical and mental health issues, including cardiovascular problems, weakened immune systems, anxiety, and depression.
+
+Recognizing the pervasive nature of stress and its profound impact on health, StressAware offers an innovative approach to help individuals monitor and understand their physiological responses. By leveraging heart rate variability (HRV) data, this application aims to provide insights into acute stress episodes, empowering users to become more aware of their body's signals and potentially take proactive steps towards managing their stress levels.
+
+This repository was developed as a final project for the **Advanced Programming in R** course at the **Faculty of Economic Sciences, University of Warsaw**.
+
 ## 1. Project Overview
 
 StressAware is an R-based toolkit for analyzing heart rate (HR) time-series data to assess and predict acute stress episodes. It combines a Shiny web application for interactive analysis with a backend R pipeline for data processing and stress classification using a Python model.
@@ -103,4 +111,8 @@ This will generate the stress_rf.pkl file.
 
 
 ## 7. Disclaimer
+This application is intended for informational and educational purposes only. The stress classification provided by StressAware should not be considered a medical diagnosis. 
+
+*If you are feeling unwell or have concerns about your stress levels or health, please seek professional medical and therapeutical help. Always consult with a qualified healthcare provider for any health concerns or before making any decisions related to your health or treatment.*
+
 Ensure all paths and specific configurations (especially Python environment and pandoc in app/server.R) are adjusted for your local setup.
