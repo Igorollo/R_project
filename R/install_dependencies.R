@@ -11,7 +11,8 @@
       'matrixStats',
       "patchwork",
       "reticulate",
-      "tibble" # For plotting results (used in testing/examples)
+      "tibble", # For plotting results (used in testing/examples)
+      "shiny" # For interactive web applications
       # Add other packages here if needed later (e.g., 'signal' for FFT, specific HRV packages)
     )
     message("Checking for required packages...")
