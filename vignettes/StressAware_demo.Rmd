@@ -83,7 +83,8 @@ tryCatch({
 # Load the Python stress model globally if your Rmd needs to call model functions
 # Adjust path if your model is elsewhere. If model/ is parallel to app/
 # and project_root is the parent of app/, then model_file_path would be project_root/model/stress_rf.pkl
-model_file_path <- file.path(project_root, "model", "stress_rf.pkl") # Assuming 'model' folder at project root
+model_file_path <- file.path(project_root, "stress_rf.pkl") # Assuming 'stress_rf.pkl' is at the project root
+
 if (file.exists(model_file_path)) {
   # It's crucial that `load_stress_model` and `classify_stress_windows` functions
   # (from model.R) are available in the Rmd's rendering environment.
@@ -92,15 +93,8 @@ if (file.exists(model_file_path)) {
   # source(file.path(r_script_path, "model.R"))
   message("Python stress model expected at: ", model_file_path)
 
-  # Although load_stress_model is typically called within classify_stress_windows,
-  # explicitly loading it here might be useful if other parts of the Rmd
-  # need it directly.
   tryCatch({
-    # Assuming load_stress_model is defined in model.R and sourced by server.R
-    # If not, you might need to source model.R here:
-    # source(file.path(r_script_path, "model.R"))
     if (exists("load_stress_model", mode = "function")) {
-       # This call ensures the model is loaded into Python environment within Rmd
        load_stress_model(model_path = model_file_path)
        message("Python stress model successfully loaded (or re-loaded) for Rmd use.")
     } else {
@@ -111,7 +105,7 @@ if (file.exists(model_file_path)) {
   })
 } else {
   warning(paste0("Stress classification model '", model_file_path, "' not found for Rmd. ",
-                 "Stress classification features will not be available in report. Please ensure the model file is in the 'model' directory relative to your project root."))
+                 "Stress classification features will not be available in report. Please ensure the model file is at your project root."))
 }
 
 
@@ -120,13 +114,9 @@ if (file.exists(model_file_path)) {
 # This block is for Rmd knitting when not run from Shiny, to provide demo data.
 if (is.null(hr_series_obj) || is.null(classified_stress_data) || nrow(classified_stress_data) == 0) {
   message("HRSeries object or classified stress data not provided as parameter. Loading sample data for Rmd knitting demo.")
-  # Define the path to the directory containing your HR data files
-  hr_data_dir <- file.path(project_root, "hr_data") # Assuming 'hr_data' is at the project root
-  sample_file_path <- file.path(hr_data_dir, "3.txt") # Use one of your sample files
+  hr_data_dir <- file.path(project_root, "hr_data")
+  sample_file_path <- file.path(hr_data_dir, "3.txt")
 
-  # Source required functions for demo if not already available
-  # This is crucial for standalone knitting.
-  # If running from Shiny, these should already be sourced in server.R's environment.
   tryCatch({
     source(file.path(r_script_path, "classes.R"))
     source(file.path(r_script_path, "clean_hr_initial.R"))
@@ -134,7 +124,7 @@ if (is.null(hr_series_obj) || is.null(classified_stress_data) || nrow(classified
     source(file.path(r_script_path, "interpolate_hr.R"))
     source(file.path(r_script_path, "preprocess_hr.R"))
     source(file.path(r_script_path, "extract_features.R"))
-    source(file.path(r_script_path, "model.R")) # Source model functions again for direct knitting
+    source(file.path(r_script_path, "model.R"))
     message("Successfully sourced R scripts for Rmd demo data generation.")
   }, error = function(e) {
     warning("Failed to source R scripts for Rmd demo data generation: ", e$message)
@@ -142,7 +132,6 @@ if (is.null(hr_series_obj) || is.null(classified_stress_data) || nrow(classified
     classified_stress_data <- NULL
   })
 
-  # Load raw data and preprocess for demo purposes if params are NULL
   if (file.exists(sample_file_path) && exists("preprocess_hr") && exists("extract_hrv_features") && exists("create_hrseries")) {
       tryCatch({
         raw_data_demo <- readr::read_csv(sample_file_path, col_types = readr::cols(.default = "c"), show_col_types = FALSE)
@@ -150,7 +139,7 @@ if (is.null(hr_series_obj) || is.null(classified_stress_data) || nrow(classified
           data = raw_data_demo,
           time_col = "Time",
           rr_col = "rr_ms",
-          resample_rate = 4, # Default values for demo
+          resample_rate = 4, 
           malik_threshold = 0.2
         )
         hrv_features_demo <- extract_hrv_features(
@@ -168,7 +157,6 @@ if (is.null(hr_series_obj) || is.null(classified_stress_data) || nrow(classified
           feature_extraction_params = list(fs = 4, window_seconds = 120, step_seconds = 60)
         )
 
-        # Classify stress for demo if features are available
         if (!is.null(hrv_features_demo) && nrow(hrv_features_demo) > 0 && exists("classify_stress_windows")) {
           classified_stress_data <- classify_stress_windows(hrv_features_df = hrv_features_demo, model_path = model_file_path)
           message("Successfully classified stress for Rmd demo data.")
@@ -187,7 +175,6 @@ if (is.null(hr_series_obj) || is.null(classified_stress_data) || nrow(classified
   }
 }
 
-# Default plot_types if not provided by Shiny (or if demo mode)
 if (is.null(plot_types) || length(plot_types) == 0) {
   plot_types <- c("cleaned_rr", "interpolated_hr", "hrv_features", "stress_classification")
   message("DEBUG (Rmd setup): plot_types was NULL or empty, setting to default for Rmd demo.")
@@ -195,7 +182,6 @@ if (is.null(plot_types) || length(plot_types) == 0) {
   message("DEBUG (Rmd setup): plot_types received: ", paste(plot_types, collapse = ", "))
 }
 
-# Check data availability for conditional content rendering
 data_available <- !is.null(hr_series_obj) && !is.null(hr_series_obj@cleaned_rr) && nrow(hr_series_obj@cleaned_rr) > 0
 ```
 # Introduction 
@@ -293,24 +279,33 @@ This plot visualizes the stress predictions over time, often alongside the assoc
 
 ```{r stress-overtime, echo=FALSE}
 if (data_available && "stress_classification" %in% plot_types && !is.null(classified_stress_data) && nrow(classified_stress_data) > 0) {
-  # Assuming plot method of HRSeries object is available and handles "stress_classification" type
-  # or you have a separate plotting function for classified_stress_data
-  # For example, let's create a simple plot here:
   
-  p_stress <- ggplot(classified_stress_data, aes(x = window_end_time, y = stress_probability, color = as.factor(stress_prediction))) +
-    geom_line() +
-    geom_point(aes(y = as.numeric(stress_prediction) * 0.9 + 0.05)) + # Small offset for clear points
-    geom_hline(yintercept = 0.5, linetype = "dashed", color = "grey") +
-    scale_color_manual(values = c("0" = "forestgreen", "1" = "firebrick"),
-                       labels = c("0" = "Non-Stress", "1" = "Stress")) +
-    labs(title = "Stress Probability and Prediction Over Time",
+  plot_data_rmd <- classified_stress_data %>%
+    mutate(
+      stress_level_label = case_when(
+        stress_prediction == 1 ~ "High Stress",
+        stress_prediction == 0 ~ "Low Stress",
+        TRUE ~ "Unknown" # Should not happen if predictions are only 0 or 1
+      ),
+      stress_level_label = factor(stress_level_label, levels = c("Low Stress", "High Stress", "Unknown"))
+    )
+
+  p_stress <- ggplot(plot_data_rmd, aes(x = window_end_time, y = stress_prediction, color = stress_level_label)) +
+    geom_point(size = 2.5, alpha = 0.8) + 
+    scale_color_manual(values = c("Low Stress" = "forestgreen", "High Stress" = "firebrick", "Unknown" = "grey50"), 
+                       name = "Stress Level") +
+    labs(title = "Stress Prediction Over Time",
          x = "Time",
-         y = "Stress Probability",
-         color = "Prediction") +
-    ylim(0, 1) +
-    theme_minimal() +
-    theme(legend.position = "bottom")
+         y = "Stress Prediction") +
+    scale_y_continuous(breaks = c(0, 1), labels = c("Low (0)", "High (1)"), limits = c(-0.1, 1.1)) +
+    theme_minimal(base_size = 10) + 
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5),
+          axis.text.x = element_text(angle = 45, hjust = 1))
 
   print(p_stress)
+} else {
+   ggplot() + theme_void() + labs(title = "No stress classification data to plot.") +
+   annotate("text", x = 0.5, y = 0.5, label = "No stress classification data to display.", size = 5)
 }
 ```

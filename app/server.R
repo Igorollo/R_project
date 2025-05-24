@@ -9,9 +9,9 @@ reticulate::use_python("c:/users/paula/appdata/local/programs/python/python313/p
 library(shiny)
 library(ggplot2)
 library(dplyr)
-library(patchwork) 
-library(rmarkdown) 
-library(hrbrthemes) 
+library(patchwork)
+library(rmarkdown)
+library(hrbrthemes)
 
 library(tinytex)
 # library(pandoc) # pandoc package itself is not usually needed directly if rmarkdown is used
@@ -28,10 +28,10 @@ source("../R/detect_artifacts_malik.R")
 source("../R/interpolate_hr.R")
 source("../R/preprocess_hr.R")
 source("../R/extract_features.R")
-source("../R/model.R") 
+source("../R/model.R")
 source("../R/classes.R")
 
-options(shiny.maxRequestSize = 30*1024^2) 
+options(shiny.maxRequestSize = 30*1024^2)
 
 shinyServer(function(input, output, session) {
 
@@ -133,32 +133,32 @@ shinyServer(function(input, output, session) {
           message("DEBUG: classified_stress_data reactive value updated.")
 
           if (!is.null(classified_data)) {
-            shiny::showNotification("Stress classification complete!", type = "message", duration = 5) 
+            shiny::showNotification("Stress classification complete!", type = "message", duration = 5)
           } else {
             shiny::showNotification("Stress classification returned no results. The model might not have produced predictions.", type = "warning", duration = 5)
           }
 
         }, error = function(e) {
           notification_title <- "Classification Process Error (Caught in server.R)"
-          full_error_message <- paste("Message:", conditionMessage(e)) 
-          
+          full_error_message <- paste("Message:", conditionMessage(e))
+
           message("--- DETAILED ERROR CAUGHT IN CLASSIFICATION TRYCATCH (server.R) ---")
           message("Error Class: ", paste(class(e), collapse=", "))
-          message("Error Call: ", deparse(conditionCall(e)))   
-          message("Error Message: ", conditionMessage(e)) 
+          message("Error Call: ", deparse(conditionCall(e)))
+          message("Error Message: ", conditionMessage(e))
           message("Full Error Object:")
-          print(e) 
+          print(e)
           message("--- END DETAILED ERROR ---")
 
           shiny::showNotification(
             ui = paste(notification_title, "\n", full_error_message),
             type = "error",
-            duration = NULL 
+            duration = NULL
           )
           classified_stress_data(NULL)
         })
       } else {
-        shiny::showNotification("HRV features not available or empty, skipping stress classification.", type = "warning", duration = 5) 
+        shiny::showNotification("HRV features not available or empty, skipping stress classification.", type = "warning", duration = 5)
         classified_stress_data(NULL)
       }
       incProgress(0.1, detail = "Rendering results...")
@@ -228,21 +228,21 @@ shinyServer(function(input, output, session) {
     if (is.null(classified_stress_data()) || nrow(classified_stress_data()) == 0) {
         return(data.frame(Message = "No stress classification data to display."))
     }
-    
+
     display_data <- classified_stress_data()
-    
+
     cols_to_select <- c("window_end_time", "stress_prediction", "stress_probability",
                         "rmssd", "sdnn", "lf_hf_ratio")
-    
+
     available_cols <- cols_to_select[cols_to_select %in% names(display_data)]
-    
+
     if (length(available_cols) < length(cols_to_select)) {
         warning(paste("One or more expected columns for stress table are missing. Available:", paste(available_cols, collapse=", ")))
     }
-    
+
     display_data <- display_data %>%
-      select(all_of(available_cols)) 
-      
+      select(all_of(available_cols))
+
     if ("stress_prediction" %in% names(display_data)) {
         display_data <- display_data %>%
             mutate(stress_prediction = as.factor(stress_prediction))
@@ -257,7 +257,7 @@ shinyServer(function(input, output, session) {
     if (is.null(classified_stress_data()) || nrow(classified_stress_data()) == 0) {
         return(ggplot() + theme_void() + labs(title = "No stress classification data to plot."))
     }
-    
+
     plot_data <- classified_stress_data() %>%
       mutate(
         stress_color = case_when(
@@ -273,8 +273,7 @@ shinyServer(function(input, output, session) {
     }
 
     ggplot(plot_data, aes(x = window_end_time, y = stress_prediction, color = stress_color)) +
-      geom_point(size = 3, alpha = 0.7) +
-      geom_line(aes(y = stress_probability), linetype = "dashed", color = "grey50", na.rm = TRUE) +
+      geom_point(size = 3, alpha = 0.7) + # Removed the geom_line for stress_probability
       scale_color_manual(values = c("Low Stress" = "#1f78b4", "High Stress" = "#e31a1c", "Unknown" = "grey")) +
       labs(title = "Stress Level Over Time",
            x = "Time",
@@ -294,14 +293,14 @@ shinyServer(function(input, output, session) {
       if (!rmarkdown::pandoc_available(version = "1.12.3")) {
         error_msg <- "Pandoc version 1.12.3 or higher is required to generate the PDF report and was not found. Please install or update Pandoc. (You can check availability in R console with rmarkdown::pandoc_available()). If you used pandoc_install(), ensure RSTUDIO_PANDOC environment variable is correctly set at the top of server.R if needed, or that Pandoc is in your system PATH."
         shiny::showNotification(error_msg, type = "error", duration = NULL)
-        writeLines(error_msg, file) 
-        return() 
+        writeLines(error_msg, file)
+        return()
       }
 
       tempReport <- file.path(tempdir(), "StressAware_demo.Rmd")
       file.copy("../vignettes/StressAware_demo.Rmd", tempReport, overwrite = TRUE)
 
-      project_root_path <- dirname(getwd()) 
+      project_root_path <- dirname(getwd())
 
       # --- MODIFICATION FOR STRESS PLOT IN REPORT ---
       # Get the plot types selected by the user
