@@ -1,0 +1,316 @@
+---
+title: "StressAware Heart Rate Data Analysis Report"
+authors: "Paula Banach (440186), Igor Kołodziej (440239)"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+header-includes:
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhead[L]{StressAware Analysis}
+- \fancyhead[R]{\thepage}
+- \fancyfoot[C]{}
+params: # All parameters must be declared here (leave this as 'params')
+  hr_series_obj_param: NULL
+  classified_stress_data_param: NULL
+  plot_types_param: NULL
+  project_root_param: "" # Declare the new parameter
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.height = 4)
+
+# Load required libraries for the R Markdown document
+library(methods)
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(lubridate)
+library(hrbrthemes)
+library(readr)
+library(zoo)
+library(reticulate)
+library(knitr)
+library(tinytex) # For PDF output if using TinyTeX
+
+# Access the parameters passed from the Shiny app using the NEW variable name
+# The 'params' in the YAML header (above) is still 'params', but the object
+# actually passed into the Rmd's environment via the `rmarkdown::render(params=...)`
+# argument now has a different name, which will become a variable in this chunk.
+report_params <- params # 'params' here will actually contain the list passed as 'report_params'
+
+# Access all parameters passed from the Shiny app using the new variable name
+project_root <- report_params$project_root_param
+hr_series_obj <- report_params$hr_series_obj_param
+classified_stress_data <- report_params$classified_stress_data_param
+plot_types <- report_params$plot_types_param
+
+
+# --- Debug messages (can remove after verification) ---
+message("DEBUG (Rmd setup): Current working directory for Rmd: ", getwd())
+message("DEBUG (Rmd setup): Project root passed from server: ", project_root)
+
+# Construct the absolute path to your 'R/' directory
+# Assuming 'R/' is directly under the project root
+r_script_path <- file.path(project_root, "R")
+message("DEBUG (Rmd setup): R scripts directory: ", r_script_path)
+
+
+# Ensure the Python environment is configured if not done in server.R's global environment
+# It's highly recommended to do `reticulate::use_python()` or `reticulate::use_condaenv()`
+# in your `server.R` or `global.R` file so it's set up before the Rmd renders.
+# However, for robustness, you can add a fallback here if absolutely necessary,
+# but note that `rmarkdown::render` runs in a clean environment by default.
+# The `envir = new.env(parent = globalenv())` in server.R helps, but re-sourcing
+# Python configuration might be needed if functions relying on reticulate are called
+# directly within the Rmd and not just passed objects.
+tryCatch({
+  if (reticulate::py_available()) {
+    message("Reticulate Python is available.")
+  } else {
+    warning("Reticulate Python is not available. Please check configuration in server.R.")
+  }
+  reticulate::py_discover_config()
+}, error = function(e) {
+  warning("Reticulate Python environment configuration failed in Rmd: ", e$message,
+          " Ensure Python with 'joblib' and 'numpy' is installed and accessible.")
+})
+
+
+# Load the Python stress model globally if your Rmd needs to call model functions
+# Adjust path if your model is elsewhere. If model/ is parallel to app/
+# and project_root is the parent of app/, then model_file_path would be project_root/model/stress_rf.pkl
+model_file_path <- file.path(project_root, "model", "stress_rf.pkl") # Assuming 'model' folder at project root
+if (file.exists(model_file_path)) {
+  # It's crucial that `load_stress_model` and `classify_stress_windows` functions
+  # (from model.R) are available in the Rmd's rendering environment.
+  # If server.R sources model.R and passes the global environment, they should be.
+  # If you are knitting this Rmd file directly for testing, you might need to source:
+  # source(file.path(r_script_path, "model.R"))
+  message("Python stress model expected at: ", model_file_path)
+
+  # Although load_stress_model is typically called within classify_stress_windows,
+  # explicitly loading it here might be useful if other parts of the Rmd
+  # need it directly.
+  tryCatch({
+    # Assuming load_stress_model is defined in model.R and sourced by server.R
+    # If not, you might need to source model.R here:
+    # source(file.path(r_script_path, "model.R"))
+    if (exists("load_stress_model", mode = "function")) {
+       # This call ensures the model is loaded into Python environment within Rmd
+       load_stress_model(model_path = model_file_path)
+       message("Python stress model successfully loaded (or re-loaded) for Rmd use.")
+    } else {
+       warning("`load_stress_model` function not found in Rmd environment. Cannot explicitly load model.")
+    }
+  }, error = function(e) {
+    warning("Failed to load Python stress model for Rmd: ", e$message)
+  })
+} else {
+  warning(paste0("Stress classification model '", model_file_path, "' not found for Rmd. ",
+                 "Stress classification features will not be available in report. Please ensure the model file is in the 'model' directory relative to your project root."))
+}
+
+
+# Ensure the hr_series_obj is created or handled if not passed from Shiny
+# For stand-alone knitting (e.g., direct "Knit" button), you might need to load sample data here
+# This block is for Rmd knitting when not run from Shiny, to provide demo data.
+if (is.null(hr_series_obj) || is.null(classified_stress_data) || nrow(classified_stress_data) == 0) {
+  message("HRSeries object or classified stress data not provided as parameter. Loading sample data for Rmd knitting demo.")
+  # Define the path to the directory containing your HR data files
+  hr_data_dir <- file.path(project_root, "hr_data") # Assuming 'hr_data' is at the project root
+  sample_file_path <- file.path(hr_data_dir, "3.txt") # Use one of your sample files
+
+  # Source required functions for demo if not already available
+  # This is crucial for standalone knitting.
+  # If running from Shiny, these should already be sourced in server.R's environment.
+  tryCatch({
+    source(file.path(r_script_path, "classes.R"))
+    source(file.path(r_script_path, "clean_hr_initial.R"))
+    source(file.path(r_script_path, "detect_artifacts_malik.R"))
+    source(file.path(r_script_path, "interpolate_hr.R"))
+    source(file.path(r_script_path, "preprocess_hr.R"))
+    source(file.path(r_script_path, "extract_features.R"))
+    source(file.path(r_script_path, "model.R")) # Source model functions again for direct knitting
+    message("Successfully sourced R scripts for Rmd demo data generation.")
+  }, error = function(e) {
+    warning("Failed to source R scripts for Rmd demo data generation: ", e$message)
+    hr_series_obj <- NULL
+    classified_stress_data <- NULL
+  })
+
+  # Load raw data and preprocess for demo purposes if params are NULL
+  if (file.exists(sample_file_path) && exists("preprocess_hr") && exists("extract_hrv_features") && exists("create_hrseries")) {
+      tryCatch({
+        raw_data_demo <- readr::read_csv(sample_file_path, col_types = readr::cols(.default = "c"), show_col_types = FALSE)
+        preproc_results_demo <- preprocess_hr(
+          data = raw_data_demo,
+          time_col = "Time",
+          rr_col = "rr_ms",
+          resample_rate = 4, # Default values for demo
+          malik_threshold = 0.2
+        )
+        hrv_features_demo <- extract_hrv_features(
+          preprocessed_results = preproc_results_demo,
+          fs = 4,
+          window_seconds = 120,
+          step_seconds = 60
+        )
+        hr_series_obj <- create_hrseries(
+          preprocessed_data = preproc_results_demo,
+          features_data = hrv_features_demo,
+          file_source = basename(sample_file_path),
+          subject_id = "DemoSubject",
+          preprocessing_params = list(resample_rate = 4, malik_threshold = 0.2),
+          feature_extraction_params = list(fs = 4, window_seconds = 120, step_seconds = 60)
+        )
+
+        # Classify stress for demo if features are available
+        if (!is.null(hrv_features_demo) && nrow(hrv_features_demo) > 0 && exists("classify_stress_windows")) {
+          classified_stress_data <- classify_stress_windows(hrv_features_df = hrv_features_demo, model_path = model_file_path)
+          message("Successfully classified stress for Rmd demo data.")
+        } else {
+          classified_stress_data <- NULL
+          warning("No HRV features extracted or classify_stress_windows not found for Rmd demo, cannot classify stress.")
+        }
+
+      }, error = function(e) {
+        warning("Error loading or processing sample data for Rmd demo: ", e$message)
+        hr_series_obj <- NULL
+        classified_stress_data <- NULL
+      })
+  } else {
+    warning("Could not load sample data or find necessary processing functions for Rmd demo.")
+  }
+}
+
+# Default plot_types if not provided by Shiny (or if demo mode)
+if (is.null(plot_types) || length(plot_types) == 0) {
+  plot_types <- c("cleaned_rr", "interpolated_hr", "hrv_features", "stress_classification")
+  message("DEBUG (Rmd setup): plot_types was NULL or empty, setting to default for Rmd demo.")
+} else {
+  message("DEBUG (Rmd setup): plot_types received: ", paste(plot_types, collapse = ", "))
+}
+
+# Check data availability for conditional content rendering
+data_available <- !is.null(hr_series_obj) && !is.null(hr_series_obj@cleaned_rr) && nrow(hr_series_obj@cleaned_rr) > 0
+```
+# Introduction 
+
+This report presents an analysis of heart rate (HR) and heart rate variability (HRV) data, including preprocessing steps, feature extraction, and stress classification using a pre-trained machine learning model.
+
+# Data Summary and Preprocessing
+
+This section provides an overview of the raw data and the effects of the preprocessing pipeline.
+
+```{r data-summary, echo=FALSE}
+if (data_available) {
+  cat("### Basic Data Characteristics\n")
+  cat(paste0("- **File Source:** ", hr_series_obj@metadata$file_source, "\n"))
+  cat(paste0("- **Subject ID:** ", hr_series_obj@metadata$subject_id, "\n"))
+  cat(paste0("- **Processing Timestamp:** ", hr_series_obj@metadata$processing_timestamp, "\n"))
+  cat(paste0("- **Original Data Points:** ", nrow(hr_series_obj@metadata$original_data), "\n"))
+  cat(paste0("- **Cleaned RR Intervals (Initial QC Passed):** ", sum(hr_series_obj@cleaned_rr$initial_qc_passed), " / ", nrow(hr_series_obj@cleaned_rr), "\n"))
+  cat(paste0("- **Artifacts Detected (Malik Criterion):** ", sum(hr_series_obj@cleaned_rr$is_artifact), " / ", nrow(hr_series_obj@cleaned_rr), "\n"))
+  cat(paste0("- **Interpolated HR Points:** ", nrow(hr_series_obj@interpolated_hr), "\n"))
+  cat(paste0("- **Resampling Rate:** ", hr_series_obj@metadata$preprocessing_params$resample_rate, " Hz\n"))
+} else {
+  cat("No data available to generate summary and plots. Please ensure data is correctly loaded.\n")
+}
+```
+
+## Cleaned RR Intervals
+
+This plot shows the raw and cleaned RR intervals, highlighting points identified as artifacts and those that failed initial quality control.
+
+```{r cleaned-intervals, echo=FALSE}
+if (data_available && "cleaned_rr" %in% plot_types) {
+  # Plot using the method defined in classes.R (or plot_preprocessing_results if available)
+  # Assuming plot method of HRSeries object is available and handles "cleaned_rr" type
+  plot(hr_series_obj, type = "cleaned_rr",
+       title = "Raw and Cleaned RR Intervals with Artifacts")
+}
+```
+
+## Interpolated Heart Rate
+
+This plot displays the instantaneous heart rate after interpolation over artifacts and resampling to a uniform time grid.
+
+```{r interpolated-HR, echo=FALSE}
+if (data_available && "interpolated_hr" %in% plot_types) {
+  plot(hr_series_obj, type = "interpolated_hr",
+       title = "Interpolated and Resampled Heart Rate")
+}
+```
+
+# Heart Rate Variability (HRV) Features
+
+This section presents the extracted Time-Domain and Frequency-Domain HRV features over defined windows.
+
+```{r HRV-features, echo=FALSE}
+if (data_available && !is.null(hr_series_obj@hrv_features) && nrow(hr_series_obj@hrv_features) > 0) {
+  cat("### Extracted HRV Features (First 5 Windows)\n")
+  print(head(hr_series_obj@hrv_features))
+  cat("\n### HRV Feature Summary Statistics\n")
+  print(summary(dplyr::select(hr_series_obj@hrv_features, sdnn, rmssd, lf_power, hf_power, lf_hf_ratio)))
+} else {
+  cat("No HRV features available.\n")
+}
+```
+
+## HRV Features Over Time
+
+Plots showing the change in key HRV features (e.g., RMSSD, LF/HF Ratio) over the recording period.
+
+```{r HRV-overtime, echo=FALSE}
+if (data_available && "hrv_features" %in% plot_types && !is.null(hr_series_obj@hrv_features) && nrow(hr_series_obj@hrv_features) > 0) {
+  plot(hr_series_obj, type = "hrv_features",
+       title = "HRV Features Over Time")
+}
+```
+
+# Stress Classification
+
+This section provides the results of stress classification based on HRV features, using a pre-trained machine learning model.
+
+```{r stress-classif, echo=FALSE}
+if (data_available && !is.null(classified_stress_data) && nrow(classified_stress_data) > 0) {
+  cat("### Stress Classification Results (First 5 Windows)\n")
+  print(head(classified_stress_data))
+  cat("\n### Stress Prediction Summary\n")
+  print(table(classified_stress_data$stress_prediction, useNA = "ifany"))
+} else {
+  cat("No stress classification results available.\n")
+}
+```
+
+## Stress Classification Over Time
+
+This plot visualizes the stress predictions over time, often alongside the associated probability.
+
+```{r stress-overtime, echo=FALSE}
+if (data_available && "stress_classification" %in% plot_types && !is.null(classified_stress_data) && nrow(classified_stress_data) > 0) {
+  # Assuming plot method of HRSeries object is available and handles "stress_classification" type
+  # or you have a separate plotting function for classified_stress_data
+  # For example, let's create a simple plot here:
+  
+  p_stress <- ggplot(classified_stress_data, aes(x = window_end_time, y = stress_probability, color = as.factor(stress_prediction))) +
+    geom_line() +
+    geom_point(aes(y = as.numeric(stress_prediction) * 0.9 + 0.05)) + # Small offset for clear points
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "grey") +
+    scale_color_manual(values = c("0" = "forestgreen", "1" = "firebrick"),
+                       labels = c("0" = "Non-Stress", "1" = "Stress")) +
+    labs(title = "Stress Probability and Prediction Over Time",
+         x = "Time",
+         y = "Stress Probability",
+         color = "Prediction") +
+    ylim(0, 1) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+
+  print(p_stress)
+}
+```

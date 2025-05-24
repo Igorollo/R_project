@@ -4,9 +4,9 @@
 
 # --- Source Helper Functions ---
 # Ensure these files are in the R/ directory relative to the working directory
-source("R/clean_hr_initial.R")
-source("R/detect_artifacts_malik.R")
-source("R/interpolate_hr.R")
+# source("clean_hr_initial.R")
+# source("detect_artifacts_malik.R")
+# source("interpolate_hr.R")
 
 # Required libraries (ensure installed)
 # install.packages(c("readr", "dplyr", "lubridate", "zoo", "ggplot2"))
