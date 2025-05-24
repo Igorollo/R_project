@@ -2,82 +2,76 @@
 
 # IMPORTANT: Configure reticulate to use your specific Python installation
 library(reticulate)
+# Make sure this path points to YOUR Python executable that has scikit-learn, joblib, and numpy
 reticulate::use_python("c:/users/paula/appdata/local/programs/python/python313/python.exe", required = TRUE)
-# Note: Use forward slashes for paths in R, even on Windows.
-# Also, ensure you point to the 'python.exe' itself.
+
 
 library(shiny)
 library(ggplot2)
 library(dplyr)
-library(patchwork) # For combining plots
-library(rmarkdown) # For PDF report generation
-library(hrbrthemes) # For nice ggplot themes
+library(patchwork) 
+library(rmarkdown) 
+library(hrbrthemes) 
 
 library(tinytex)
-library(pandoc)
+# library(pandoc) # pandoc package itself is not usually needed directly if rmarkdown is used
+
+# This line should point to the pandoc installed by pandoc_install() or a system-wide one.
+# Ensure this path is correct for your system if you uncomment it.
+# If Pandoc is in your system PATH and rmarkdown::pandoc_available() is TRUE, this line might not be needed.
 Sys.setenv(RSTUDIO_PANDOC = "C:/Users/paula/AppData/Local/r-pandoc/r-pandoc/3.7.0.1")
 
-# Example snippet from app/global.R or app/server.R
+
+# Source R scripts - paths are relative to the app/ directory
 source("../R/clean_hr_initial.R")
 source("../R/detect_artifacts_malik.R")
 source("../R/interpolate_hr.R")
 source("../R/preprocess_hr.R")
 source("../R/extract_features.R")
-source("../R/model.R") # This loads the model functions
+source("../R/model.R") 
 source("../R/classes.R")
 
-options(shiny.maxRequestSize = 30*1024^2) # Increase max upload size to 30MB
+options(shiny.maxRequestSize = 30*1024^2) 
 
-shinyServer(function(input, output, session) { # 'session' is explicitly available here
+shinyServer(function(input, output, session) {
 
-  # Reactive value to store the HRSeries object
   hr_series_obj <- reactiveVal(NULL)
-
-  # Reactive value for stress classification results
   classified_stress_data <- reactiveVal(NULL)
 
-  # Observe file upload and trigger processing pipeline
   observeEvent(input$file1, {
-    req(input$file1) # Ensure a file is uploaded
+    req(input$file1)
 
-    # Show a progress message
     withProgress(message = 'Processing HR Data...', value = 0, {
-
       incProgress(0.1, detail = "Reading data...")
       file_path <- input$file1$datapath
       file_name <- input$file1$name
 
-      # Load data using readr::read_csv
       raw_data <- tryCatch({
         readr::read_csv(file_path, col_types = readr::cols(.default = "c"), show_col_types = FALSE)
       }, error = function(e) {
-        shiny::showNotification(paste("Error reading file:", e$message), type = "error", duration = NULL, session = session)
+        shiny::showNotification(paste("Error reading file:", e$message), type = "error", duration = NULL)
         return(NULL)
       })
-      req(raw_data) # Ensure data was read successfully
+      req(raw_data)
 
-      # --- Step 1: Preprocessing ---
       incProgress(0.2, detail = "Cleaning and interpolating HR data...")
       preproc_results <- tryCatch({
         preprocess_hr(
           data = raw_data,
-          time_col = "Time", # Assuming these are the column names in the uploaded file
+          time_col = "Time",
           rr_col = "rr_ms",
           resample_rate = input$resample_rate,
           malik_threshold = input$malik_threshold
         )
       }, error = function(e) {
-        shiny::showNotification(paste("Preprocessing Error:", e$message), type = "error", duration = NULL, session = session)
-        hr_series_obj(NULL) # Clear previous results on error
+        shiny::showNotification(paste("Preprocessing Error:", e$message), type = "error", duration = NULL)
+        hr_series_obj(NULL)
         return(NULL)
       })
-      req(preproc_results) # Ensure preprocessing was successful
+      req(preproc_results)
 
-
-      # --- Step 2: Feature Extraction ---
       incProgress(0.3, detail = "Extracting HRV features...")
       hrv_features <- tryCatch({
-        # Ensure preproc_results is not NULL and contains expected elements
         if (is.null(preproc_results) ||
             is.null(preproc_results$interpolated_hr) ||
             nrow(preproc_results$interpolated_hr) == 0 ||
@@ -92,21 +86,19 @@ shinyServer(function(input, output, session) { # 'session' is explicitly availab
           step_seconds = input$step_seconds
         )
       }, error = function(e) {
-        shiny::showNotification(paste("Feature Extraction Error:", e$message), type = "error", duration = NULL, session = session)
+        shiny::showNotification(paste("Feature Extraction Error:", e$message), type = "error", duration = NULL)
         hr_series_obj(NULL)
         return(NULL)
       })
-      req(hrv_features) # Ensure feature extraction was successful
+      req(hrv_features)
 
-
-      # --- Step 3: Create HRSeries Object ---
       incProgress(0.1, detail = "Creating HRSeries object...")
       tryCatch({
         current_hr_series_obj <- create_hrseries(
           preprocessed_data = preproc_results,
           features_data = hrv_features,
           file_source = file_name,
-          subject_id = "UploadedData", # Can be made dynamic if needed
+          subject_id = "UploadedData",
           preprocessing_params = list(resample_rate = input$resample_rate,
                                       malik_threshold = input$malik_threshold),
           feature_extraction_params = list(fs = input$resample_rate,
@@ -115,74 +107,72 @@ shinyServer(function(input, output, session) { # 'session' is explicitly availab
         )
         hr_series_obj(current_hr_series_obj)
       }, error = function(e) {
-        shiny::showNotification(paste("HRSeries Object Creation Error:", e$message), type = "error", duration = NULL, session = session)
+        shiny::showNotification(paste("HRSeries Object Creation Error:", e$message), type = "error", duration = NULL)
         hr_series_obj(NULL)
         return(NULL)
       })
 
-
-      # --- Step 4: Stress Classification ---
       incProgress(0.2, detail = "Classifying stress levels...")
-      if (!is.null(hr_series_obj()) && !is.null(hr_series_obj()@hrv_features)) {
+      if (!is.null(hr_series_obj()) && !is.null(hr_series_obj()@hrv_features) && nrow(hr_series_obj()@hrv_features) > 0) {
         tryCatch({
-          # Corrected: Use a relative path from the app/ directory to the project root
-          # This path assumes stress_rf.pkl is in the R_PROJECT root
           model_path_relative_to_app <- "../stress_rf.pkl"
 
-          # Attempt to load model explicitly if not already loaded globally
-          if (!exists(".stress_model_py", envir = .GlobalEnv)) {
-            load_stress_model(model_path = model_path_relative_to_app) # Pass the relative path
-          }
+          classified_data <- classify_stress_windows(
+            hrv_features_df = hr_series_obj()@hrv_features,
+            model_path = model_path_relative_to_app
+          )
 
-          classified_data <- classify_stress_windows(hr_series_obj()@hrv_features, model_path = model_path_relative_to_app)
-
-          # --- DEBUGGING STATEMENTS ---
           message("DEBUG: classify_stress_windows returned. Type of classified_data: ", class(classified_data))
           message("DEBUG: Is classified_data NULL? ", is.null(classified_data))
           if (!is.null(classified_data) && is.data.frame(classified_data)) {
               message("DEBUG: Number of rows in classified_data: ", nrow(classified_data))
               message("DEBUG: Names of columns in classified_data: ", paste(names(classified_data), collapse = ", "))
-              # Optional: Print head of data if it's a data frame
-              # print(head(classified_data))
           }
-          # --- END DEBUGGING STATEMENTS ---
 
-          classified_stress_data(classified_data) # This line assigns the result to a reactive value
+          classified_stress_data(classified_data)
           message("DEBUG: classified_stress_data reactive value updated.")
 
-
           if (!is.null(classified_data)) {
-            shiny::showNotification("Stress classification complete!", type = "success", session = session)
+            shiny::showNotification("Stress classification complete!", type = "message", duration = 5) 
           } else {
-            shiny::showNotification("Stress classification returned no results.", type = "warning", session = session)
+            shiny::showNotification("Stress classification returned no results. The model might not have produced predictions.", type = "warning", duration = 5)
           }
 
         }, error = function(e) {
-          # Use a simplified message to rule out issues with the error string content itself
-          shiny::showNotification("An error occurred during stress classification. Please check the R console for details.",
-                           type = "error", duration = NULL, session = session)
+          notification_title <- "Classification Process Error (Caught in server.R)"
+          full_error_message <- paste("Message:", conditionMessage(e)) 
+          
+          message("--- DETAILED ERROR CAUGHT IN CLASSIFICATION TRYCATCH (server.R) ---")
+          message("Error Class: ", paste(class(e), collapse=", "))
+          message("Error Call: ", deparse(conditionCall(e)))   
+          message("Error Message: ", conditionMessage(e)) 
+          message("Full Error Object:")
+          print(e) 
+          message("--- END DETAILED ERROR ---")
+
+          shiny::showNotification(
+            ui = paste(notification_title, "\n", full_error_message),
+            type = "error",
+            duration = NULL 
+          )
           classified_stress_data(NULL)
         })
       } else {
-        shiny::showNotification("HRV features not available for stress classification.", type = "warning", session = session)
+        shiny::showNotification("HRV features not available or empty, skipping stress classification.", type = "warning", duration = 5) 
         classified_stress_data(NULL)
       }
-
       incProgress(0.1, detail = "Rendering results...")
-    }) # End withProgress
-  }) # End observeEvent
+    })
+  })
 
-
-  # --- Output: Data Summary ---
   output$data_summary_output <- renderPrint({
     req(hr_series_obj())
     summary(hr_series_obj())
   })
 
-  # --- Output: HRV Features Summary ---
   output$hrv_summary_output <- renderPrint({
     req(hr_series_obj())
-    if (!is.null(hr_series_obj()@hrv_features)) {
+    if (!is.null(hr_series_obj()@hrv_features) && nrow(hr_series_obj()@hrv_features) > 0) {
       cat("HRV Features Data (Head):\n")
       print(head(hr_series_obj()@hrv_features))
       cat("\nHRV Features Data (Summary):\n")
@@ -191,8 +181,6 @@ shinyServer(function(input, output, session) { # 'session' is explicitly availab
       "No HRV features available."
     }
   })
-
-  # --- Dynamic Plot Outputs (based on user selection) ---
 
   output$plot_ui_cleaned_rr <- renderUI({
     if ("cleaned_rr" %in% input$plot_types) {
@@ -212,7 +200,6 @@ shinyServer(function(input, output, session) { # 'session' is explicitly availab
     }
   })
 
-
   output$cleaned_rr_plot <- renderPlot({
     req(hr_series_obj())
     if ("cleaned_rr" %in% input$plot_types) {
@@ -229,96 +216,136 @@ shinyServer(function(input, output, session) { # 'session' is explicitly availab
 
   output$hrv_features_plot <- renderPlot({
     req(hr_series_obj())
-    if ("hrv_features" %in% input$plot_types) {
+    if ("hrv_features" %in% input$plot_types && !is.null(hr_series_obj()@hrv_features) && nrow(hr_series_obj()@hrv_features) > 0) {
       plot(hr_series_obj(), type = "hrv_features")
+    } else {
+      ggplot() + theme_void() + labs(title = "No HRV Features to plot.")
     }
   })
 
-  # --- Output: Stress Classification Table ---
   output$stress_classification_table <- renderTable({
     req(classified_stress_data())
-    # Select relevant columns for display
-    classified_stress_data() %>%
-      select(window_start_time, window_end_time,
-             stress_prediction, stress_probability,
-             rmssd, sdnn, lf_hf_ratio) %>%
-      mutate(stress_prediction = as.factor(stress_prediction)) %>% # Ensure factor for display
-      head(20) # Displaying first 20 rows for brevity
+    if (is.null(classified_stress_data()) || nrow(classified_stress_data()) == 0) {
+        return(data.frame(Message = "No stress classification data to display."))
+    }
+    
+    display_data <- classified_stress_data()
+    
+    cols_to_select <- c("window_end_time", "stress_prediction", "stress_probability",
+                        "rmssd", "sdnn", "lf_hf_ratio")
+    
+    available_cols <- cols_to_select[cols_to_select %in% names(display_data)]
+    
+    if (length(available_cols) < length(cols_to_select)) {
+        warning(paste("One or more expected columns for stress table are missing. Available:", paste(available_cols, collapse=", ")))
+    }
+    
+    display_data <- display_data %>%
+      select(all_of(available_cols)) 
+      
+    if ("stress_prediction" %in% names(display_data)) {
+        display_data <- display_data %>%
+            mutate(stress_prediction = as.factor(stress_prediction))
+    }
+
+    head(display_data, 20)
   }, rownames = FALSE)
 
-  # --- Output: Stress Over Time Plot ---
+
   output$stress_over_time_plot <- renderPlot({
     req(classified_stress_data())
+    if (is.null(classified_stress_data()) || nrow(classified_stress_data()) == 0) {
+        return(ggplot() + theme_void() + labs(title = "No stress classification data to plot."))
+    }
+    
     plot_data <- classified_stress_data() %>%
       mutate(
         stress_color = case_when(
           stress_prediction == 1 ~ "High Stress",
           stress_prediction == 0 ~ "Low Stress",
-          TRUE ~ "Unknown" # Handle any other cases
+          TRUE ~ "Unknown"
         ),
         stress_color = factor(stress_color, levels = c("Low Stress", "High Stress", "Unknown"))
       )
 
+    if (!"window_end_time" %in% names(plot_data) || !"stress_prediction" %in% names(plot_data)) {
+        return(ggplot() + theme_void() + labs(title = "Required columns for stress plot missing."))
+    }
+
     ggplot(plot_data, aes(x = window_end_time, y = stress_prediction, color = stress_color)) +
       geom_point(size = 3, alpha = 0.7) +
-      geom_line(aes(y = stress_probability), linetype = "dashed", color = "grey50") + # Show probability trend
+      geom_line(aes(y = stress_probability), linetype = "dashed", color = "grey50", na.rm = TRUE) +
       scale_color_manual(values = c("Low Stress" = "#1f78b4", "High Stress" = "#e31a1c", "Unknown" = "grey")) +
       labs(title = "Stress Level Over Time",
            x = "Time",
            y = "Stress Prediction (0=Low, 1=High)",
            color = "Stress Level") +
       scale_y_continuous(breaks = c(0, 1), labels = c("Low", "High")) +
-      theme_ipsum_rc(grid="Y") + # Using hrbrthemes
+      theme_ipsum_rc(grid="Y") +
       theme(legend.position = "bottom",
             panel.grid.major.x = element_line(linetype = "dotted", color = "lightgrey"))
   })
 
-
-  # --- Download Report (PDF) ---
   output$downloadReport <- downloadHandler(
     filename = function() {
       paste("StressAware_Report_", Sys.Date(), ".pdf", sep = "")
     },
     content = function(file) {
+      if (!rmarkdown::pandoc_available(version = "1.12.3")) {
+        error_msg <- "Pandoc version 1.12.3 or higher is required to generate the PDF report and was not found. Please install or update Pandoc. (You can check availability in R console with rmarkdown::pandoc_available()). If you used pandoc_install(), ensure RSTUDIO_PANDOC environment variable is correctly set at the top of server.R if needed, or that Pandoc is in your system PATH."
+        shiny::showNotification(error_msg, type = "error", duration = NULL)
+        writeLines(error_msg, file) 
+        return() 
+      }
+
       tempReport <- file.path(tempdir(), "StressAware_demo.Rmd")
       file.copy("../vignettes/StressAware_demo.Rmd", tempReport, overwrite = TRUE)
 
-      # Determine the project root dynamically
-      # If runApp("app") is called from the project root, then getwd() would be "app"
-      # so dirname(getwd()) would be the project root.
-      project_root_path <- dirname(getwd())
+      project_root_path <- dirname(getwd()) 
 
+      # --- MODIFICATION FOR STRESS PLOT IN REPORT ---
+      # Get the plot types selected by the user
+      current_plot_types <- input$plot_types
+      # If stress classification data is available, ensure "stress_classification" is added
+      # to the plot_types parameter that will be passed to the Rmd.
+      if (!is.null(classified_stress_data()) && nrow(classified_stress_data()) > 0) {
+          current_plot_types <- unique(c(current_plot_types, "stress_classification"))
+      }
+      # --- END MODIFICATION ---
 
-      # Pass parameters to the Rmd document using a new name for the list
       report_params <- list(
         hr_series_obj_param = hr_series_obj(),
         classified_stress_data_param = classified_stress_data(),
-        plot_types_param = input$plot_types, # Pass selected plot types
-        project_root_param = project_root_path # Pass the project root
+        plot_types_param = current_plot_types, # Use the modified plot types
+        project_root_param = project_root_path
       )
 
-      # Render the Rmd file into a PDF
-      rmarkdown::render(tempReport,
-                        output_file = file,
-                        params = report_params, # Use the new name here
-                        envir = new.env(parent = globalenv()) # Isolate environment
-      )
+      tryCatch({
+        rmarkdown::render(tempReport,
+                          output_file = file,
+                          params = report_params,
+                          envir = new.env(parent = globalenv())
+        )
+      }, error = function(e) {
+        error_msg_render <- paste("Failed to render PDF report:", e$message, "Please check R console for LaTeX or Pandoc errors.")
+        shiny::showNotification(error_msg_render, type = "error", duration = NULL)
+        writeLines(c("Failed to generate PDF report.", "Error message:", e$message, "Please check the R console for detailed Pandoc or LaTeX logs."), file)
+      })
     }
   )
 
-  # --- Download CSV ---
   output$downloadCSV <- downloadHandler(
     filename = function() {
       paste("HRV_Features_", Sys.Date(), ".csv", sep = "")
     },
     content = function(file) {
       req(hr_series_obj())
-      if (!is.null(hr_series_obj()@hrv_features)) {
+      if (!is.null(hr_series_obj()@hrv_features) && nrow(hr_series_obj()@hrv_features) > 0) {
         write.csv(hr_series_obj()@hrv_features, file, row.names = FALSE)
       } else {
-        stop("No HRV features data to download.")
+        write.csv(data.frame(Message = "No HRV features data to download."), file, row.names = FALSE)
+        shiny::showNotification("No HRV features data available to download.", type = "warning", duration = 5)
       }
     }
   )
-
 })
