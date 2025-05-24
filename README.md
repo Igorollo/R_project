@@ -97,8 +97,10 @@ This will generate the stress_rf.pkl file.
 
 ## 6. Authors
 
-Paula Banach, 440186
+**Paula Banach**, 440186
 
-Igor Kołodziej, 440239
+**Igor Kołodziej**, 440239
 
-**NOTE:** Ensure all paths and specific configurations (especially Python environment and pandoc in app/server.R) are adjusted for your local setup.
+
+## 7. Disclaimer
+Ensure all paths and specific configurations (especially Python environment and pandoc in app/server.R) are adjusted for your local setup.
