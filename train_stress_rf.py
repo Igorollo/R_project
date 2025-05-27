@@ -9,7 +9,7 @@ conversation):
 * Only the **synchronised RespiBAN chest ECG** contained in each `SX.pkl`
   file is used (700 Hz, already time‑aligned with the labels).
 * Subjects **S1** and **S12** are **excluded** because their data is
-  missing according to the README.
+  missing.
 * Label mapping follows the README’s protocol IDs (III.1):
   * `2 → stress (positive class = 1)`
   * `1 → baseline`, everything else (`0, 3, 4`) is treated as
